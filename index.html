@@ -1,0 +1,2317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parametric Grid Designer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gray: { 750: '#2d2d30', 850: '#1e1e1e', 900: '#171717' },
+                        accent: '#007acc',
+                        accentHover: '#005a9e'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; color: #cccccc; font-family: 'Segoe UI', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+        
+        canvas { image-rendering: pixelated; }
+
+        .tool-icon-btn { 
+            width: 36px; height: 36px; 
+            border-radius: 4px; 
+            display: flex; align-items: center; justify-content: center;
+            background: #252526; color: #aaa;
+            transition: all 0.2s; cursor: pointer;
+            border: 1px solid #3e3e42;
+            margin-bottom: 4px;
+            font-size: 10px; font-weight: bold;
+        }
+        .tool-icon-btn:hover { background: #3e3e42; color: white; }
+        .tool-icon-btn.active { background: #007acc; color: white; border-color: #4daafc; }
+        .tool-icon-btn.disabled { opacity: 0.3; pointer-events: none; }
+
+        .glass-pane {
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(8px);
+            border-left: 1px solid #333;
+            transition: transform 0.3s ease-in-out;
+        }
+        .glass-pane.collapsed { transform: translateX(100%); }
+
+        /* Tree View Styles */
+        .tree-node { padding-left: 12px; border-left: 1px solid #333; margin-left: 4px; }
+        .tree-header { 
+            display: flex; align-items: center; gap: 6px; 
+            padding: 4px 8px; cursor: pointer; 
+            font-size: 11px; user-select: none;
+            border-radius: 2px;
+        }
+        .tree-header:hover { background: #2a2d2e; }
+        .tree-header.selected { background: #37373d; border: 1px solid #007acc; }
+        .tree-icon { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+        .tree-toggle { color: #888; font-size: 8px; width: 10px; text-align: center; cursor: pointer; }
+        .tree-vis { color: #666; font-size: 10px; cursor: pointer; margin-right: 2px; }
+        .tree-vis:hover { color: #fff; }
+        .tree-vis.hidden-layer { color: #333; }
+        
+        .tree-cell-item { 
+            padding-left: 24px; font-size: 10px; color: #666; 
+            padding-top: 2px; padding-bottom: 2px; cursor: default;
+        }
+
+        .prop-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
+        .prop-input { background: #3c3c3c; border: 1px solid #555; color: white; padding: 2px 4px; width: 60px; text-align: right; border-radius: 2px; }
+        .prop-select { background: #3c3c3c; border: 1px solid #555; color: white; padding: 2px; width: 90px; font-size: 10px; border-radius: 2px; }
+
+        .separator { height: 1px; background: #333; width: 80%; margin: 8px 0; }
+        .tool-group-label { font-size: 9px; text-transform: uppercase; color: #666; margin-bottom: 4px; text-align: center; width: 100%; }
+        
+        .action-btn { width: 100%; margin-top: 8px; padding: 4px; background: #333; color: #eee; font-size: 10px; border-radius: 3px; cursor: pointer; border: 1px solid #444; }
+        .action-btn:hover { background: #444; }
+
+        /* Overlay for blocking UI */
+        .ui-blocker { position: absolute; inset: 0; background: rgba(0,0,0,0.5); z-index: 50; display: none; cursor: not-allowed; }
+        .ui-blocker.active { display: block; }
+
+        /* Play Button */
+        .play-controls {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            z-index: 60; display: flex; gap: 10px;
+            background: #252526; padding: 5px 15px; border-radius: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid #3e3e42;
+        }
+        .play-btn {
+            width: 30px; height: 30px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: white; transition: 0.2s;
+        }
+        .play-btn:hover { transform: scale(1.1); }
+        .play-btn.start { background: #166534; }
+        .play-btn.stop { background: #b91c1c; }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute; pointer-events: none; z-index: 100;
+            background: rgba(20, 20, 20, 0.9); border: 1px solid #444;
+            color: #eee; padding: 4px 8px; border-radius: 4px; font-size: 10px;
+            display: none; box-shadow: 0 2px 4px rgba(0,0,0,0.5); white-space: nowrap;
+        }
+
+        /* Right Pane Toggle */
+        .pane-toggle {
+            position: absolute; top: 50%; right: 350px; /* 320px content + 30px tabs */
+            width: 20px; height: 40px; background: #252526;
+            border: 1px solid #333; border-right: none;
+            border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 55; color: #888;
+            transition: right 0.3s ease-in-out;
+        }
+        .pane-toggle:hover { color: #fff; background: #333; }
+        .pane-toggle.collapsed { right: 30px; } /* Just the tabs */
+
+        .right-pane-container {
+            position: absolute; right: 0; top: 0; bottom: 0; z-index: 20;
+            display: flex; flex-direction: row;
+        }
+
+        .vertical-tab-bar {
+            width: 30px;
+            background: #252526;
+            border-left: 1px solid #333;
+            display: flex; flex-direction: column;
+            align-items: center;
+            padding-top: 10px;
+            z-index: 25;
+        }
+
+        .tab-btn-vertical {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+            padding: 15px 4px;
+            cursor: pointer;
+            color: #888;
+            font-size: 11px;
+            border-left: 2px solid transparent;
+            margin-bottom: 5px;
+            background: #252526;
+            transition: 0.2s;
+            user-select: none;
+        }
+        .tab-btn-vertical:hover { color: #fff; background: #2d2d30; }
+        .tab-btn-vertical.active { 
+            color: #007acc; 
+            border-left-color: #007acc; 
+            background: #1e1e1e; 
+            font-weight: bold; 
+        }
+
+        .pane-content {
+            width: 320px;
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(8px);
+            border-left: 1px solid #333;
+            display: flex; flex-direction: column;
+            transition: width 0.3s ease-in-out;
+            overflow: hidden;
+        }
+        .pane-content.collapsed { width: 0; border-left: none; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-gray-900 relative flex">
+
+    <!-- TOOLTIP -->
+    <div id="tooltip" class="tooltip"></div>
+    
+    <!-- HIDDEN FILE INPUT -->
+    <input type="file" id="file-input" accept=".json" style="display:none" onchange="app.loadProjectFromFile(this)">
+
+    <!-- PLAY CONTROLS -->
+    <div class="play-controls">
+        <div id="btn-play" class="play-btn start" onclick="app.toggleSimulation()" title="Play Simulation">▶</div>
+    </div>
+
+    <!-- BLOCKER OVERLAYS -->
+    <div id="canvas-blocker" class="ui-blocker left-16 right-10"></div>
+    <div id="toolbar-blocker" class="ui-blocker w-16 left-0"></div>
+
+    <!-- LEFT TOOLBAR -->
+    <div class="w-16 flex flex-col items-center py-4 bg-gray-850 border-r border-gray-750 z-20 overflow-y-auto relative" id="toolbar">
+        <!-- Injected by JS based on Active Tab -->
+    </div>
+
+    <!-- CANVAS AREA -->
+    <div class="flex-1 relative bg-gray-900 overflow-hidden">
+        <canvas id="main-canvas" class="absolute inset-0 block"></canvas>
+    </div>
+
+    <!-- RIGHT PANE TOGGLE -->
+    <div class="pane-toggle" id="pane-toggle" onclick="app.toggleRightPane()">»</div>
+
+    <!-- RIGHT PANE -->
+    <div class="right-pane-container" id="right-pane">
+        
+        <!-- VERTICAL TABS -->
+        <div class="vertical-tab-bar">
+            <div class="tab-btn-vertical active" id="tab-comp" onclick="app.setTab('components')">COMPONENTS</div>
+            <div class="tab-btn-vertical" id="tab-wire" onclick="app.setTab('wires')">WIRES</div>
+        </div>
+
+        <!-- CONTENT -->
+        <div id="pane-content" class="pane-content">
+            <!-- HEADER -->
+            <div class="p-2 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+                <div class="flex gap-1">
+                    <button onclick="app.saveProject()" class="px-2 py-1 bg-blue-700 hover:bg-blue-600 text-white text-[10px] rounded" title="Save Project to JSON">⬇</button>
+                    <button onclick="document.getElementById('file-input').click()" class="px-2 py-1 bg-blue-700 hover:bg-blue-600 text-white text-[10px] rounded" title="Load Project from JSON">⬆</button>
+                    <div class="w-px bg-gray-600 mx-1"></div>
+                    <button onclick="app.addLayer()" class="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-200 text-[10px] rounded">+ Layer</button>
+                    <button id="btn-layer-multi" onclick="app.toggleLayerMultiMode()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-[10px] rounded text-white" title="Select Multiple Layers">Multi</button>
+                </div>
+                <div class="flex gap-1">
+                    <button id="btn-repeat" onclick="app.applyRepeat()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-[10px] rounded text-white disabled:opacity-30 disabled:cursor-not-allowed" title="Repeat Selected">Rep</button>
+                    <button id="btn-group" onclick="app.groupSelection()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-[10px] rounded text-white disabled:opacity-30 disabled:cursor-not-allowed">Grp</button>
+                    <button onclick="app.deleteSelection()" class="px-2 py-1 bg-red-900 hover:bg-red-800 text-red-200 text-[10px] rounded">Del</button>
+                </div>
+            </div>
+            <!-- HIERARCHY -->
+            <div id="hierarchy-view" class="flex-1 overflow-y-auto p-2 relative">
+                <div id="hierarchy-overlay" class="absolute inset-0 bg-black/10 hidden pointer-events-none"></div>
+            </div>
+            <!-- PROPERTIES -->
+            <div class="h-1/3 border-t border-gray-700 bg-gray-850 flex flex-col">
+                <div class="p-2 bg-gray-800 border-b border-gray-700 font-bold text-xs text-gray-300">PROPERTIES</div>
+                <div id="properties-view" class="p-3 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * --- UTILS & DEFS ---
+ */
+const GRID = 20;
+
+// Gate Definitions
+const GATES = {
+    'AND':  { in: 2, out: 1, color: '#166534' },
+    'OR':   { in: 2, out: 1, color: '#1e40af' },
+    'NOT':  { in: 1, out: 1, color: '#b91c1c' },
+    'XOR':  { in: 2, out: 1, color: '#7e22ce' },
+    'NAND': { in: 2, out: 1, color: '#14532d' },
+    'NOR':  { in: 2, out: 1, color: '#1e3a8a' },
+    'XNOR': { in: 2, out: 1, color: '#6b21a8' },
+    'SWITCH': { in: 0, out: 1, color: '#ca8a04' },
+    'CLOCK':  { in: 0, out: 1, color: '#ea580c' },
+    'LED':    { in: 1, out: 0, color: '#333333' }
+};
+
+class Vec2 {
+    constructor(x, y) { this.x = x; this.y = y; }
+    add(v) { return new Vec2(this.x + v.x, this.y + v.y); }
+    snap() { return new Vec2(Math.floor(this.x/GRID)*GRID, Math.floor(this.y/GRID)*GRID); }
+    grid() { return new Vec2(Math.floor(this.x/GRID), Math.floor(this.y/GRID)); }
+    equals(v) { return this.x === v.x && this.y === v.y; }
+    clone() { return new Vec2(this.x, this.y); }
+}
+
+/**
+ * --- PARAMETRIC NODE SYSTEM ---
+ */
+
+class Node {
+    constructor(name) {
+        this.id = Math.random().toString(36).substr(2, 9);
+        this.name = name;
+        this.parent = null;
+        this.children = [];
+        this.expanded = true;
+        this.type = 'Node'; // Helper for JSON serialization
+    }
+    bake() { return []; } 
+    getType() { return 'Node'; }
+    move(dx, dy) {}
+    getPath() {
+        let path = [];
+        let curr = this;
+        while(curr) { 
+            path.unshift(curr);
+            curr = curr.parent;
+        }
+        return path;
+    }
+    ungroup() {
+        if(!this.parent) return;
+        const idx = this.parent.children.indexOf(this);
+        if(idx === -1) return;
+        this.parent.children.splice(idx, 1);
+        this.children.forEach(c => {
+            c.parent = this.parent;
+            this.parent.children.splice(idx, 0, c);
+        });
+    }
+
+    // SERIALIZATION
+    toJSON() {
+        return {
+            type: this.getType(),
+            id: this.id,
+            name: this.name,
+            expanded: this.expanded,
+            children: this.children.map(c => c.toJSON()),
+            // Additional props to be overridden by subclasses
+        };
+    }
+}
+
+class LayerNode extends Node {
+    constructor(name, type) {
+        super(name);
+        this.type = type; // 'COMPONENT' or 'WIRE'
+        this.visible = true;
+        this.opacity = 1.0;
+        this.locked = false;
+        // Default colors
+        this.color = type === 'WIRE' ? '#4ade80' : '#9ca3af'; 
+    }
+    bake() {
+        if(!this.visible) return [];
+        let blocks = [];
+        this.children.forEach(c => blocks.push(...c.bake()));
+        blocks.forEach(b => {
+            b.opacity = (b.opacity || 1.0) * this.opacity;
+            if(!b.layerId) b.layerId = this.id; 
+            if(b.type === 'body' || b.type === 'wire') {
+                b.layerId = this.id;
+                b.layerColor = this.color; // Pass layer color to blocks
+                if(b.type === 'wire') b.color = this.color; // Wires inherit layer color directly
+            }
+        });
+        return blocks;
+    }
+    add(node) {
+        node.parent = this;
+        this.children.push(node);
+    }
+    getType() { return 'Layer'; }
+    toJSON() {
+        return { ...super.toJSON(), layerType: this.type, visible: this.visible, opacity: this.opacity, color: this.color };
+    }
+}
+
+class ComponentNode extends Node {
+    constructor(type, gridPos) {
+        super(type);
+        this.compType = type; 
+        this.pos = gridPos; 
+        this.state = 0; // For Switch
+        
+        const def = GATES[type] || GATES['AND'];
+        const maxPins = Math.max(def.in, def.out);
+        this.size = (2 * maxPins) + 1; 
+        this.w = this.size;
+        this.h = this.size;
+        this.period = 60;
+        
+        this.pins = [];
+        
+        const calcY = (index, count) => {
+            const span = (count * 2) - 1;
+            const startY = Math.floor((this.h - span) / 2);
+            return startY + (index * 2);
+        };
+
+        // Inputs (Outside Left)
+        for(let i=0; i<def.in; i++) {
+            this.pins.push({
+                id: `in_${i}`, type: 'in',
+                x: -1, y: calcY(i, def.in),
+                targetLayerId: null 
+            });
+        }
+        // Outputs (Outside Right)
+        for(let i=0; i<def.out; i++) {
+            this.pins.push({
+                id: `out_${i}`, type: 'out',
+                x: this.size, y: calcY(i, def.out),
+                targetLayerId: null 
+            });
+        }
+    }
+
+    move(dx, dy) {
+        this.pos.x += dx;
+        this.pos.y += dy;
+    }
+
+    bake() {
+        const blocks = [];
+        const def = GATES[this.compType] || {color: '#888'};
+        
+        // Body
+        blocks.push({
+            type: 'body',
+            x: this.pos.x * GRID, y: this.pos.y * GRID,
+            w: this.w * GRID, h: this.h * GRID,
+            color: def.color, 
+            sourceId: this.id,
+            compType: this.compType,
+            state: this.state, 
+            pins: this.pins,
+            period: this.period
+        });
+
+        // Pins
+        this.pins.forEach(p => {
+            if (p.targetLayerId) {
+                blocks.push({
+                    type: 'pin',
+                    x: (this.pos.x + p.x) * GRID,
+                    y: (this.pos.y + p.y) * GRID,
+                    w: GRID, h: GRID, 
+                    color: '#facc15',
+                    sourceId: this.id, 
+                    layerId: p.targetLayerId,
+                    isPin: true,
+                    pinId: p.id
+                });
+            }
+        });
+
+        return blocks;
+    }
+    getType() { return 'Component'; }
+    toJSON() {
+        return { ...super.toJSON(), compType: this.compType, pos: this.pos, state: this.state, pins: this.pins, period: this.period };
+    }
+}
+
+class WireNode extends Node {
+    constructor(mode, startGridPos) {
+        super(mode === 'V' ? 'Vert Wire' : mode === 'H' ? 'Horiz Wire' : 'Painted Wire');
+        this.mode = mode;
+        this.start = startGridPos;
+        this.length = 1; 
+        this.width = 1;
+        this.cells = new Set(); 
+        if(mode === 'Free') this.addCell(startGridPos);
+    }
+    addCell(gridPos) { this.cells.add(`${gridPos.x},${gridPos.y}`); }
+    move(dx, dy) {
+        this.start.x += dx;
+        this.start.y += dy;
+        if(this.mode === 'Free') {
+            const newCells = new Set();
+            this.cells.forEach(k => {
+                const [x,y] = k.split(',').map(Number);
+                newCells.add(`${x+dx},${y+dy}`);
+            });
+            this.cells = newCells;
+        }
+    }
+    resize(handleType, gridPos) {
+        if (this.mode === 'V') {
+            if (handleType === 'start') {
+                const oldBottom = this.start.y + this.length;
+                this.start.y = gridPos.y;
+                this.length = Math.max(1, oldBottom - this.start.y);
+            } else if (handleType === 'end') {
+                const len = gridPos.y - this.start.y;
+                this.length = Math.max(1, len + 1);
+            }
+        } else if (this.mode === 'H') {
+            if (handleType === 'start') {
+                const oldRight = this.start.x + this.length;
+                this.start.x = gridPos.x;
+                this.length = Math.max(1, oldRight - this.start.x);
+            } else if (handleType === 'end') {
+                const len = gridPos.x - this.start.x;
+                this.length = Math.max(1, len + 1);
+            }
+        }
+    }
+    getHandles() {
+        if (this.mode === 'V') {
+            return [
+                { type: 'start', x: this.start.x * GRID + (GRID/2), y: this.start.y * GRID },
+                { type: 'end', x: this.start.x * GRID + (GRID/2), y: (this.start.y + this.length) * GRID }
+            ];
+        } else if (this.mode === 'H') {
+             return [
+                { type: 'start', x: this.start.x * GRID, y: this.start.y * GRID + (GRID/2) },
+                { type: 'end', x: (this.start.x + this.length) * GRID, y: this.start.y * GRID + (GRID/2) }
+            ];
+        }
+        return [];
+    }
+    bake() {
+        let blocks = [];
+        const color = '#b87333'; // Default copper, overridden by layer
+        if(this.mode === 'V') {
+            blocks.push({ type: 'wire', x: this.start.x * GRID, y: this.start.y * GRID, w: this.width * GRID, h: this.length * GRID, color: color, sourceId: this.id });
+        } else if(this.mode === 'H') {
+            blocks.push({ type: 'wire', x: this.start.x * GRID, y: this.start.y * GRID, w: this.length * GRID, h: this.width * GRID, color: color, sourceId: this.id });
+        } else if(this.mode === 'Free') {
+            this.cells.forEach(key => {
+                const [cx, cy] = key.split(',').map(Number);
+                blocks.push({ type: 'wire', x: cx * GRID, y: cy * GRID, w: GRID, h: GRID, color: color, sourceId: this.id });
+            });
+        }
+        return blocks;
+    }
+    getType() { return 'Wire'; }
+    toJSON() {
+        return { ...super.toJSON(), mode: this.mode, start: this.start, length: this.length, width: this.width, cells: Array.from(this.cells) };
+    }
+}
+
+class GroupNode extends Node {
+    constructor() { super('Group'); }
+    bake() {
+        let blocks = [];
+        this.children.forEach(c => blocks.push(...c.bake()));
+        return blocks;
+    }
+    add(node) {
+        node.parent = this;
+        this.children.push(node);
+    }
+    move(dx, dy) { this.children.forEach(c => c.move(dx, dy)); }
+    getType() { return 'Group'; }
+    toJSON() { return { ...super.toJSON() }; }
+}
+
+class RepeatNode extends Node {
+    constructor(targetNodes) {
+        super('Repeater');
+        this.countX = 1; this.countY = 1;
+        this.gapX = 1; this.gapY = 1; 
+        this.shiftX = 0; this.shiftY = 0; 
+        targetNodes.forEach(n => {
+            n.parent = this;
+            this.children.push(n);
+        });
+    }
+    move(dx, dy) { this.children.forEach(c => c.move(dx, dy)); }
+    bake() {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const baseBlocks = [];
+        this.children.forEach(c => baseBlocks.push(...c.bake()));
+        if(baseBlocks.length === 0) return [];
+        baseBlocks.forEach(b => {
+            minX = Math.min(minX, b.x);
+            minY = Math.min(minY, b.y);
+            maxX = Math.max(maxX, b.x + b.w);
+            maxY = Math.max(maxY, b.y + b.h);
+        });
+        const contentW = maxX - minX;
+        const contentH = maxY - minY;
+        let result = [];
+        for(let x=0; x<this.countX; x++) {
+            for(let y=0; y<this.countY; y++) {
+                const strideX = contentW + (this.gapX * GRID);
+                const strideY = contentH + (this.gapY * GRID);
+                const finalX = (x * strideX) + (y * this.shiftX * GRID);
+                const finalY = (y * strideY) + (x * this.shiftY * GRID);
+                const instanceId = `${this.id}_${x}_${y}`;
+                
+                baseBlocks.forEach(b => {
+                    const block = Object.assign({}, b);
+                    block.x += finalX;
+                    block.y += finalY;
+                    block.instancePath = (b.instancePath || "") + instanceId + "|"; 
+                    result.push(block);
+                });
+            }
+        }
+        return result;
+    }
+    getType() { return 'Repeat'; }
+    toJSON() {
+        return { ...super.toJSON(), countX: this.countX, countY: this.countY, gapX: this.gapX, gapY: this.gapY, shiftX: this.shiftX, shiftY: this.shiftY };
+    }
+}
+
+/**
+ * --- SIMULATION ENGINE ---
+ */
+class Simulator {
+    constructor() {
+        this.nets = new Map(); // NetID -> Value (0/1)
+        this.components = new Map(); // UID -> Instance
+        this.netDrivers = new Map(); // NetID -> Set<CompUID>
+        this.netReaders = new Map(); // NetID -> Set<CompUID>
+        this.reEvalQueue = new Set(); // Set of CompUIDs (Queue)
+        this.netMap = new Map(); // "layerId:x,y" -> NetID
+    }
+
+    registerCustom(name, data) { this.customDefs.set(name, data); }
+
+    buildGraph(bakedBlocks, dryRun = false) {
+        if (!dryRun) {
+            console.clear();
+            console.log("--- COMPILING CIRCUIT ---");
+        }
+        
+        this.nets.clear();
+        this.components.clear();
+        this.netDrivers.clear();
+        this.netReaders.clear();
+        this.reEvalQueue.clear();
+        this.netMap.clear();
+
+        // 1. Identify Nets (Flood Fill)
+        const wireCells = new Map(); 
+        
+        bakedBlocks.filter(b => b.type === 'wire').forEach(b => {
+            const gx = Math.round(b.x / GRID);
+            const gy = Math.round(b.y / GRID);
+            const gw = Math.round(b.w / GRID);
+            const gh = Math.round(b.h / GRID);
+            for(let i=0; i<gw; i++) {
+                for(let j=0; j<gh; j++) {
+                    wireCells.set(`${b.layerId}:${gx+i},${gy+j}`, { visited: false });
+                }
+            }
+        });
+
+        let nextNetId = 1;
+        for (const [key, cell] of wireCells) {
+            if (cell.visited) continue;
+            const netId = nextNetId++;
+            this.nets.set(netId, 0); 
+            const queue = [key];
+            cell.visited = true;
+            this.netMap.set(key, netId);
+            
+            if (!dryRun) console.log(`[COMPILE] Created Net ${netId} at ${key}`);
+
+            while(queue.length > 0) {
+                const currKey = queue.shift();
+                const [lid, coord] = currKey.split(':');
+                const [cx, cy] = coord.split(',').map(Number);
+                
+                const neighbors = [
+                    `${lid}:${cx+1},${cy}`, `${lid}:${cx-1},${cy}`,
+                    `${lid}:${cx},${cy+1}`, `${lid}:${cx},${cy-1}`
+                ];
+                
+                neighbors.forEach(nKey => {
+                    const nCell = wireCells.get(nKey);
+                    if (nCell && !nCell.visited) {
+                        nCell.visited = true;
+                        this.netMap.set(nKey, netId);
+                        queue.push(nKey);
+                    }
+                });
+            }
+        }
+        if (!dryRun) console.log(`[COMPILE] Identified ${this.nets.size} Nets`);
+
+        // 2. Instantiate Components & Link
+        const bodyBlocks = bakedBlocks.filter(b => b.type === 'body');
+        let validationError = false;
+
+        bodyBlocks.forEach(body => {
+            const uid = body.sourceId + (body.instancePath || "");
+            const def = GATES[body.compType] || {in:0, out:0};
+            
+            const inputs = new Array(def.in).fill(0); 
+            const outputs = new Array(def.out).fill(0);
+            
+            let allInputsConnected = true;
+            let allOutputsConnected = true;
+
+            let debugLog = `[COMPILE] Comp ${body.compType} (${uid}): `;
+
+            if (body.pins) {
+                body.pins.forEach(pin => {
+                    if (!pin.targetLayerId) {
+                        if (pin.type === 'in') allInputsConnected = false;
+                        if (pin.type === 'out') allOutputsConnected = false;
+                        return;
+                    }
+                    
+                    const bgx = Math.round(body.x / GRID);
+                    const bgy = Math.round(body.y / GRID);
+                    const pgx = bgx + pin.x;
+                    const pgy = bgy + pin.y;
+                    
+                    const key = `${pin.targetLayerId}:${pgx},${pgy}`;
+                    const netId = this.netMap.get(key);
+                    
+                    const pinIndex = parseInt(pin.id.split('_')[1]);
+                    
+                    if (!dryRun) console.log(`[COMPILE] Checking Pin ${pin.id} at ${key} -> Net ${netId}`);
+                    
+                    if (netId) {
+                        if (pin.type === 'in') {
+                            inputs[pinIndex] = netId;
+                            if (!this.netReaders.has(netId)) this.netReaders.set(netId, new Set());
+                            this.netReaders.get(netId).add(uid);
+                        } else {
+                            outputs[pinIndex] = netId;
+                            if (!this.netDrivers.has(netId)) this.netDrivers.set(netId, new Set());
+                            this.netDrivers.get(netId).add(uid);
+                        }
+                        debugLog += `[Pin ${pin.id} -> Net ${netId}] `;
+                    } else {
+                         debugLog += `[Pin ${pin.id} -> UNCONNECTED] `;
+                         if (pin.type === 'in') allInputsConnected = false;
+                         if (pin.type === 'out') allOutputsConnected = false;
+                    }
+                });
+            }
+            if (!dryRun) console.log(debugLog);
+            
+            if (def.in > 0 && !allInputsConnected) {
+                if (!dryRun) console.error(`VALIDATION ERROR: Comp ${uid} has unconnected inputs.`);
+                validationError = true;
+            }
+            if (def.out > 0 && !allOutputsConnected) {
+                if (!dryRun) console.error(`VALIDATION ERROR: Comp ${uid} has unconnected outputs.`);
+                validationError = true;
+            }
+
+            this.components.set(uid, {
+                uid: uid,
+                type: body.compType,
+                inputs: inputs,
+                outputs: outputs,
+                state: body.state || 0,
+                lastOutput: -1,
+                period: body.period || 60, 
+                clockTimer: 0
+            });
+            
+            this.reEvalQueue.add(uid);
+        });
+        
+        if (validationError) {
+            if (!dryRun) alert("Circuit Validation Failed! Check console for unconnected pins.");
+            return false;
+        }
+        
+        return true;
+    }
+
+    toggleSwitch(uid) {
+        const comp = this.components.get(uid);
+        if (comp && comp.type === 'SWITCH') {
+            comp.state = 1 - comp.state;
+            console.log(`[ACTION] Switch ${uid} toggled to ${comp.state}`);
+            this.reEvalQueue.add(uid);
+        }
+    }
+
+    step() {
+        this.frameCount++;
+        
+        // Clock Update
+        this.components.forEach(comp => {
+            if (comp.type === 'CLOCK') {
+                comp.clockTimer++;
+                if (comp.clockTimer >= comp.period) {
+                    comp.state = 1 - comp.state;
+                    comp.clockTimer = 0;
+                    this.reEvalQueue.add(comp.uid);
+                }
+            }
+        });
+
+        const MAX_OPS = 5000;
+        let ops = 0;
+
+        while(this.reEvalQueue.size > 0 && ops < MAX_OPS) {
+            ops++;
+            const iter = this.reEvalQueue.values();
+            const uid = iter.next().value;
+            this.reEvalQueue.delete(uid);
+
+            const comp = this.components.get(uid);
+            if (!comp) continue;
+
+            const inVals = comp.inputs.map(nid => this.nets.get(nid) || 0);
+            let outVal = 0;
+
+            switch(comp.type) {
+                case 'AND': outVal = (inVals[0] && inVals[1]) ? 1 : 0; break;
+                case 'OR':  outVal = (inVals[0] || inVals[1]) ? 1 : 0; break;
+                case 'NOT': outVal = inVals[0] ? 0 : 1; break;
+                case 'XOR': outVal = (inVals[0] ^ inVals[1]) ? 1 : 0; break;
+                case 'NAND': outVal = !(inVals[0] && inVals[1]) ? 1 : 0; break;
+                case 'NOR': outVal = !(inVals[0] || inVals[1]) ? 1 : 0; break;
+                case 'XNOR': outVal = !(inVals[0] ^ inVals[1]) ? 1 : 0; break;
+                case 'SWITCH': outVal = comp.state; break;
+                case 'CLOCK': outVal = comp.state; break;
+                case 'LED': comp.state = inVals[0]; outVal = 0; break;
+            }
+
+            if (outVal !== comp.lastOutput) {
+                console.log(`[SIM] Comp ${uid} output changed ${comp.lastOutput} -> ${outVal}`);
+                comp.lastOutput = outVal;
+
+                comp.outputs.forEach(netId => {
+                    if(netId !== 0) this.updateNet(netId, outVal);
+                });
+            }
+        }
+    }
+
+    updateNet(netId, newVal) {
+        const oldVal = this.nets.get(netId) || 0;
+        
+        if (newVal !== oldVal) {
+            console.log(`[SIM] [OVERRIDE] Net ${netId} changed ${oldVal} -> ${newVal}`);
+            this.nets.set(netId, newVal);
+            
+            const readers = this.netReaders.get(netId);
+            if (readers) {
+                readers.forEach(uid => {
+                    this.reEvalQueue.add(uid);
+                });
+            }
+        }
+    }
+}
+
+/**
+ * --- APPLICATION ---
+ */
+class App {
+    constructor() {
+        this.canvas = document.getElementById('main-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        
+        this.wireLayers = [];
+        this.compLayers = [];
+        this.activeTab = 'components'; 
+        this.activeLayer = null;
+        this.isLayerMultiMode = false;
+        this.paneOpen = true;
+
+        this.selectedNodes = new Set();
+        this.tool = 'select'; 
+        this.placeCompType = 'AND';
+        
+        this.isDrawing = false;
+        this.drawingNode = null; 
+        this.isSelectingBox = false;
+        this.boxStart = null;
+        this.isDragging = false;
+        this.dragLastGrid = null;
+        this.activeHandle = null; 
+        this.hoveredCells = []; 
+
+        // Zoom/Pan
+        this.viewScale = 1.0;
+        this.viewOffset = new Vec2(0, 0);
+        this.isPanning = false;
+        this.panStart = null;
+        
+        this.simulator = new Simulator();
+        this.simRunning = false;
+        
+        this.circuitLibrary = {}; 
+
+        this.addLayer(); 
+        this.setTab('wires');
+        this.addLayer(); 
+        this.setTab('components'); 
+
+        window.addEventListener('resize', () => this.resize());
+        this.setupInput();
+        this.resize();
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+        this.refreshHierarchy();
+        this.updateToolbar();
+    }
+
+    // ... existing addLayer, setTab, toggleRightPane, toggleLayerMultiMode, resize ...
+
+    addLayer() {
+        const isWire = this.activeTab === 'wires';
+        const targetStack = isWire ? this.wireLayers : this.compLayers;
+        const name = `${isWire ? 'Wire' : 'Comp'} Layer ${targetStack.length + 1}`;
+        const l = new LayerNode(name, isWire ? 'WIRE' : 'COMPONENT');
+        targetStack.push(l);
+        this.activeLayer = l;
+        this.refreshHierarchy();
+    }
+
+    setTab(t) {
+        if(this.isLayerMultiMode) this.toggleLayerMultiMode();
+        this.activeTab = t;
+        document.querySelectorAll('.tab-btn-vertical').forEach(b => b.classList.remove('active'));
+        document.getElementById(t === 'wires' ? 'tab-wire' : 'tab-comp').classList.add('active');
+        const stack = t === 'wires' ? this.wireLayers : this.compLayers;
+        if (!this.activeLayer || this.activeLayer.type !== (t === 'wires' ? 'WIRE' : 'COMPONENT')) {
+            this.activeLayer = stack.length > 0 ? stack[stack.length - 1] : null;
+        }
+        this.selectedNodes.clear();
+        this.setTool('select');
+        this.updateToolbar(); 
+        this.refreshHierarchy(); 
+        this.refreshProperties();
+        this.updateActionButtons();
+    }
+
+    toggleRightPane() {
+        const content = document.getElementById('pane-content');
+        const toggle = document.getElementById('pane-toggle');
+        const blocker = document.getElementById('canvas-blocker'); 
+        this.paneOpen = !this.paneOpen;
+        if (this.paneOpen) {
+            content.classList.remove('collapsed');
+            toggle.classList.remove('collapsed');
+            toggle.innerText = '»';
+            toggle.style.right = '350px'; 
+            blocker.style.right = '350px'; 
+        } else {
+            content.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+            toggle.innerText = '«';
+            toggle.style.right = '30px'; 
+            blocker.style.right = '30px';
+        }
+    }
+
+    toggleLayerMultiMode() {
+        this.isLayerMultiMode = !this.isLayerMultiMode;
+        const btn = document.getElementById('btn-layer-multi');
+        const blockerC = document.getElementById('canvas-blocker');
+        const blockerT = document.getElementById('toolbar-blocker');
+        if (this.isLayerMultiMode) {
+            btn.classList.remove('bg-gray-700', 'hover:bg-gray-600');
+            btn.classList.add('bg-accent', 'hover:bg-accentHover');
+            blockerC.classList.add('active');
+            blockerT.classList.add('active');
+            this.selectedNodes.clear(); 
+        } else {
+            btn.classList.remove('bg-accent', 'hover:bg-accentHover');
+            btn.classList.add('bg-gray-700', 'hover:bg-gray-600');
+            blockerC.classList.remove('active');
+            blockerT.classList.remove('active');
+            this.selectedNodes.clear();
+            if (this.activeLayer) this.selectedNodes.add(this.activeLayer); 
+        }
+        this.refreshHierarchy();
+        this.refreshProperties();
+        this.updateActionButtons();
+    }
+
+    resize() {
+        this.canvas.width = this.canvas.parentElement.clientWidth;
+        this.canvas.height = this.canvas.parentElement.clientHeight;
+    }
+
+    setTool(t) {
+        if (this.isLayerMultiMode) return;
+        if (t === 'select-multi' && this.tool === 'select') {
+            const newSelection = new Set();
+            this.selectedNodes.forEach(n => {
+                this.collectLeaves(n, newSelection);
+            });
+            this.selectedNodes = newSelection;
+            this.refreshHierarchy();
+            this.refreshProperties();
+            this.updateActionButtons();
+        }
+        this.tool = t;
+        this.isDrawing = false;
+        this.drawingNode = null;
+        this.isSelectingBox = false;
+        this.isDragging = false;
+        this.activeHandle = null;
+        this.boxStart = null;
+        
+        document.querySelectorAll('.tool-icon-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`tool-${t}`);
+        if(btn) btn.classList.add('active');
+    }
+    
+    setPlaceComp(type) {
+        this.placeCompType = type;
+        this.setTool('place-comp');
+        document.querySelectorAll('.tool-icon-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById(`tool-gate-${type}`);
+        if(btn) btn.classList.add('active');
+    }
+
+    collectLeaves(node, set) {
+        if (node instanceof WireNode || node instanceof ComponentNode) {
+            set.add(node);
+        } else {
+            node.children.forEach(c => this.collectLeaves(c, set));
+        }
+    }
+
+    updateToolbar() {
+        const div = document.getElementById('toolbar');
+        div.innerHTML = '';
+        
+        const addBtn = (id, html, title, clickFn) => {
+            const b = document.createElement('button');
+            b.className = `tool-icon-btn ${this.tool === id ? 'active' : ''}`;
+            b.id = `tool-${id}`;
+            b.title = title;
+            b.innerHTML = html;
+            b.onclick = clickFn ? clickFn : () => this.setTool(id);
+            div.appendChild(b);
+        };
+
+        const label = (txt) => {
+            const l = document.createElement('div');
+            l.className = 'tool-group-label';
+            l.innerText = txt;
+            div.appendChild(l);
+        };
+
+        label('Select');
+        addBtn('select', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777"></path></svg>', 'Single');
+        addBtn('select-multi', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>', 'Multi');
+        addBtn('select-box', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4h16v16H4z" stroke-dasharray="4 4"></path></svg>', 'Box');
+        addBtn('pan', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"></path></svg>', 'Pan');
+
+        const sep = document.createElement('div'); sep.className = 'separator'; div.appendChild(sep);
+
+        if (this.activeTab === 'wires') {
+            label('Draw');
+            addBtn('draw-v', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16"></path></svg>', 'Vert');
+            addBtn('draw-h', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12h16"></path></svg>', 'Horiz');
+            addBtn('draw-free', '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>', 'Paint');
+        } else {
+            label('Input');
+            ['SWITCH', 'CLOCK'].forEach(g => {
+                const b = document.createElement('button');
+                b.className = `tool-icon-btn ${this.placeCompType === g && this.tool === 'place-comp' ? 'active' : ''}`;
+                b.id = `tool-gate-${g}`;
+                b.innerText = g;
+                b.onclick = () => this.setPlaceComp(g);
+                div.appendChild(b);
+            });
+            
+            label('Gates');
+            ['AND', 'OR', 'NOT', 'XOR', 'NAND', 'NOR', 'XNOR'].forEach(g => {
+                const b = document.createElement('button');
+                b.className = `tool-icon-btn ${this.placeCompType === g && this.tool === 'place-comp' ? 'active' : ''}`;
+                b.id = `tool-gate-${g}`;
+                b.innerText = g;
+                b.onclick = () => this.setPlaceComp(g);
+                div.appendChild(b);
+            });
+
+            label('Output');
+            ['LED'].forEach(g => {
+                const b = document.createElement('button');
+                b.className = `tool-icon-btn ${this.placeCompType === g && this.tool === 'place-comp' ? 'active' : ''}`;
+                b.id = `tool-gate-${g}`;
+                b.innerText = g;
+                b.onclick = () => this.setPlaceComp(g);
+                div.appendChild(b);
+            });
+        }
+    }
+    
+    // --- SAVE/LOAD PROJECT ---
+    saveProject() {
+        const data = {
+            version: 1,
+            compLayers: this.compLayers.map(l => l.toJSON()),
+            wireLayers: this.wireLayers.map(l => l.toJSON()),
+            viewScale: this.viewScale,
+            viewOffset: { x: this.viewOffset.x, y: this.viewOffset.y }
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'circuit_project.json';
+        a.click();
+    }
+
+    loadProjectFromFile(input) {
+        const file = input.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                this.loadProject(data);
+            } catch(err) {
+                alert("Invalid JSON file");
+                console.error(err);
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    loadProject(data) {
+        // Reset
+        this.wireLayers = [];
+        this.compLayers = [];
+        this.selectedNodes.clear();
+        this.activeLayer = null;
+        
+        if(data.viewScale) this.viewScale = data.viewScale;
+        if(data.viewOffset) this.viewOffset = new Vec2(data.viewOffset.x, data.viewOffset.y);
+        
+        const restoreNode = (nData) => {
+            let node;
+            switch(nData.type) {
+                case 'Layer': 
+                    node = new LayerNode(nData.name, nData.layerType);
+                    node.visible = nData.visible;
+                    node.opacity = nData.opacity;
+                    if(nData.color) node.color = nData.color;
+                    break;
+                case 'Component':
+                    node = new ComponentNode(nData.compType, new Vec2(nData.pos.x, nData.pos.y));
+                    node.state = nData.state;
+                    node.period = nData.period;
+                    // Restore pins
+                    node.pins = nData.pins; 
+                    break;
+                case 'Wire':
+                    node = new WireNode(nData.mode, new Vec2(nData.start.x, nData.start.y));
+                    node.length = nData.length;
+                    node.width = nData.width;
+                    if (nData.cells) nData.cells.forEach(c => node.cells.add(c));
+                    break;
+                case 'Group': node = new GroupNode(); break;
+                case 'Repeat':
+                    // Reconstruction of Repeater is tricky because constructor expects children
+                    // We create temp empty and fill later
+                    node = new RepeatNode([]);
+                    node.countX = nData.countX; node.countY = nData.countY;
+                    node.gapX = nData.gapX; node.gapY = nData.gapY;
+                    node.shiftX = nData.shiftX; node.shiftY = nData.shiftY;
+                    break;
+            }
+            if (node) {
+                node.id = nData.id;
+                node.name = nData.name;
+                node.expanded = nData.expanded;
+                if (nData.children) {
+                    nData.children.forEach(cData => {
+                        const child = restoreNode(cData);
+                        if (child) {
+                            child.parent = node;
+                            node.children.push(child);
+                        }
+                    });
+                }
+            }
+            return node;
+        };
+
+        if (data.compLayers) {
+            data.compLayers.forEach(lData => this.compLayers.push(restoreNode(lData)));
+        }
+        if (data.wireLayers) {
+            data.wireLayers.forEach(lData => this.wireLayers.push(restoreNode(lData)));
+        }
+        
+        this.setTab('components');
+    }
+
+    checkCollision(rect, layer) {
+        const blocks = layer.bake();
+        const rX = rect.x * GRID;
+        const rY = rect.y * GRID;
+        const rW = rect.w * GRID;
+        const rH = rect.h * GRID;
+        for (let b of blocks) {
+            if (b.type === 'body') {
+                if (rX < b.x + b.w && rX + rW > b.x && rY < b.y + b.h && rY + rH > b.y) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    toggleSimulation() {
+        this.simRunning = !this.simRunning;
+        const btn = document.getElementById('btn-play');
+        const blockerT = document.getElementById('toolbar-blocker');
+        const rightPaneBlocker = document.createElement('div');
+        
+        if (this.simRunning) {
+            const allBlocks = this.getAllBaked();
+            const valid = this.simulator.buildGraph(allBlocks);
+            
+            if (!valid) {
+                this.simRunning = false;
+                return; 
+            }
+
+            btn.innerHTML = '■';
+            btn.classList.remove('start');
+            btn.classList.add('stop');
+            btn.title = "Stop Simulation";
+            
+            this.selectedNodes.clear();
+            this.refreshProperties();
+            this.refreshHierarchy(); 
+            this.updateActionButtons();
+            
+            blockerT.classList.add('active');
+            rightPaneBlocker.id = 'right-pane-blocker';
+            rightPaneBlocker.className = 'ui-blocker active';
+            document.getElementById('pane-content').appendChild(rightPaneBlocker);
+            
+        } else {
+            btn.innerHTML = '▶';
+            btn.classList.remove('stop');
+            btn.classList.add('start');
+            btn.title = "Play Simulation";
+            
+            blockerT.classList.remove('active');
+            const b = document.getElementById('right-pane-blocker');
+            if (b) b.remove();
+        }
+        this.loop();
+    }
+
+    // ... existing methods ...
+
+    setupInput() {
+        const c = this.canvas;
+        
+        // Zoom
+        c.addEventListener('wheel', e => {
+            e.preventDefault();
+            
+            // Screen pos relative to canvas
+            const rect = c.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const zoomIntensity = 0.1;
+            const wheel = e.deltaY < 0 ? 1 : -1;
+            const zoom = Math.exp(wheel * zoomIntensity);
+            
+            // World pos before zoom
+            const worldX = (mouseX - this.viewOffset.x) / this.viewScale;
+            const worldY = (mouseY - this.viewOffset.y) / this.viewScale;
+            
+            this.viewScale *= zoom;
+            this.viewScale = Math.max(0.1, Math.min(this.viewScale, 5.0)); // Clamp
+
+            // Adjust offset to keep mouse world pos stable
+            this.viewOffset.x = mouseX - worldX * this.viewScale;
+            this.viewOffset.y = mouseY - worldY * this.viewScale;
+        });
+
+        c.addEventListener('mousemove', e => {
+            if (this.isLayerMultiMode) return;
+            const rect = c.getBoundingClientRect();
+            const screenX = e.clientX - rect.left;
+            const screenY = e.clientY - rect.top;
+            
+            // Transform to World
+            const worldX = (screenX - this.viewOffset.x) / this.viewScale;
+            const worldY = (screenY - this.viewOffset.y) / this.viewScale;
+            
+            this.mouse = new Vec2(worldX, worldY);
+            this.mouseGrid = this.mouse.grid();
+
+            // PANNING Logic
+            if (this.isPanning) {
+                const dx = screenX - this.panStart.x;
+                const dy = screenY - this.panStart.y;
+                this.viewOffset.x += dx;
+                this.viewOffset.y += dy;
+                this.panStart = { x: screenX, y: screenY };
+                return;
+            }
+
+            this.updateHoverHighlight();
+            
+            // Tooltip Logic
+            const tooltip = document.getElementById('tooltip');
+            let hoveredBlock = null;
+            
+            // Re-run minimal hit test for tooltip (fast)
+            const blocks = this.simRunning ? this.getAllBaked() : this.getAllBaked(); 
+            for(let i=blocks.length-1; i>=0; i--) {
+                const b = blocks[i];
+                if(this.mouse.x >= b.x && this.mouse.x <= b.x+b.w && this.mouse.y >= b.y && this.mouse.y <= b.y+b.h) {
+                    hoveredBlock = b;
+                    break;
+                }
+            }
+
+            if (hoveredBlock && hoveredBlock.layerId) {
+                let layerName = "Unknown Layer";
+                const layerNode = this.wireLayers.find(l => l.id === hoveredBlock.layerId) || this.compLayers.find(l => l.id === hoveredBlock.layerId);
+                if (layerNode) layerName = layerNode.name;
+                
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+                tooltip.innerText = layerName;
+            } else {
+                tooltip.style.display = 'none';
+            }
+
+            if (this.simRunning) return; 
+
+            if(this.activeHandle) {
+                this.activeHandle.node.resize(this.activeHandle.type, this.mouseGrid);
+                this.refreshProperties();
+                return; 
+            }
+
+            if(this.isDrawing && this.drawingNode) {
+                if(this.tool === 'draw-v') {
+                    const len = this.mouseGrid.y - this.drawingNode.start.y;
+                    this.drawingNode.length = Math.max(1, len + 1);
+                } 
+                else if(this.tool === 'draw-h') {
+                    const len = this.mouseGrid.x - this.drawingNode.start.x;
+                    this.drawingNode.length = Math.max(1, len + 1);
+                }
+                else if(this.tool === 'draw-free') {
+                    this.drawingNode.addCell(this.mouseGrid); 
+                }
+            }
+            
+            if(this.isDragging && this.dragLastGrid) {
+                const dx = this.mouseGrid.x - this.dragLastGrid.x;
+                const dy = this.mouseGrid.y - this.dragLastGrid.y;
+                if(dx !== 0 || dy !== 0) {
+                    this.selectedNodes.forEach(n => n.move(dx, dy));
+                    this.dragLastGrid = this.mouseGrid;
+                }
+            }
+        });
+
+        c.addEventListener('mousedown', e => {
+            const rect = c.getBoundingClientRect();
+            const screenX = e.clientX - rect.left;
+            const screenY = e.clientY - rect.top;
+            
+            // Pan Tool or Middle Click
+            if (this.tool === 'pan' || e.button === 1) {
+                e.preventDefault();
+                this.isPanning = true;
+                this.panStart = { x: screenX, y: screenY };
+                return;
+            }
+
+            if(e.button !== 0) return;
+            if (this.isLayerMultiMode) return; 
+
+            // Simulation Interaction
+            if (this.simRunning) {
+                const blocks = this.getAllBaked();
+                for(let i=blocks.length-1; i>=0; i--) {
+                    const b = blocks[i];
+                    if(this.mouse.x >= b.x && this.mouse.x <= b.x+b.w && this.mouse.y >= b.y && this.mouse.y <= b.y+b.h) {
+                        if (b.type === 'body' && b.compType === 'SWITCH') {
+                            const uid = b.sourceId + (b.instancePath || "");
+                            this.simulator.toggleSwitch(uid);
+                        }
+                        break;
+                    }
+                }
+                return;
+            }
+
+            if (!this.activeLayer) {
+                alert("Please select or create a layer first.");
+                return;
+            }
+
+            const handleHit = this.checkHandleHit();
+            if(handleHit) {
+                this.activeHandle = handleHit;
+                return;
+            }
+
+            // Move in Multi/Box mode logic
+            const hit = this.hitTest(this.mouse, false); // active layer only
+            if (hit && this.isNodeSelectedOrChildOfSelected(hit)) {
+                if (this.tool === 'select' || this.tool === 'select-multi' || this.tool === 'select-box') {
+                     this.isDragging = true;
+                     this.dragLastGrid = this.mouseGrid;
+                     return; 
+                }
+            }
+
+            if(this.tool.startsWith('draw') || this.tool === 'place-comp') {
+                if (this.tool === 'place-comp') {
+                    const c = new ComponentNode(this.placeCompType, this.mouseGrid);
+                    console.log(`[ACTION] Placing ${this.placeCompType} at ${this.mouseGrid.x},${this.mouseGrid.y}`);
+                    
+                    if (this.wireLayers.length > 0) {
+                        const defaultLayerId = this.wireLayers[0].id;
+                        c.pins.forEach(p => p.targetLayerId = defaultLayerId);
+                    }
+
+                    if (this.checkCollision({x: c.pos.x, y: c.pos.y, w: c.w, h: c.h}, this.activeLayer)) {
+                        console.log("Collision detected");
+                        return;
+                    }
+
+                    this.activeLayer.add(c);
+                    this.selectedNodes.clear();
+                    this.selectedNodes.add(c);
+                    this.refreshHierarchy();
+                    this.refreshProperties();
+                }
+                else if(this.tool === 'draw-free') {
+                    console.log(`[ACTION] Drawing Free Wire start ${this.mouseGrid.x},${this.mouseGrid.y}`);
+                    this.isDrawing = true;
+                    this.drawingNode = new WireNode('Free', this.mouseGrid);
+                    this.activeLayer.add(this.drawingNode);
+                    this.selectedNodes.clear();
+                    this.selectedNodes.add(this.drawingNode);
+                    this.refreshHierarchy();
+                } else {
+                    if (!this.isDrawing) {
+                        console.log(`[ACTION] Drawing ${this.tool} start ${this.mouseGrid.x},${this.mouseGrid.y}`);
+                        this.isDrawing = true;
+                        let mode = this.tool === 'draw-v' ? 'V' : 'H';
+                        this.drawingNode = new WireNode(mode, this.mouseGrid);
+                        this.activeLayer.add(this.drawingNode);
+                        this.selectedNodes.clear();
+                        this.selectedNodes.add(this.drawingNode);
+                        this.refreshHierarchy();
+                    } else {
+                        console.log(`[ACTION] Drawing ${this.tool} end ${this.mouseGrid.x},${this.mouseGrid.y}`);
+                        this.isDrawing = false;
+                        this.drawingNode = null;
+                        this.refreshHierarchy();
+                        this.refreshProperties();
+                    }
+                }
+            } 
+            else if(this.tool.startsWith('select')) {
+                if(this.tool === 'select-box') {
+                    this.isSelectingBox = true;
+                    this.boxStart = this.mouse;
+                } else {
+                    const hit = this.handleClickSelect(e);
+                    if(hit && this.isNodeSelectedOrChildOfSelected(hit)) {
+                        this.isDragging = true;
+                        this.dragLastGrid = this.mouseGrid;
+                    }
+                }
+            }
+        });
+
+        c.addEventListener('dblclick', e => {
+            if (this.tool !== 'select' || this.isLayerMultiMode || this.simRunning) return;
+            const blocks = this.activeLayer ? this.activeLayer.bake() : [];
+            let hitId = null;
+            for(let i=blocks.length-1; i>=0; i--) { 
+                const b = blocks[i];
+                if(this.mouse.x >= b.x && this.mouse.x <= b.x+b.w && this.mouse.y >= b.y && this.mouse.y <= b.y+b.h) {
+                    hitId = b.sourceId;
+                    break;
+                }
+            }
+            if(hitId) {
+                const leaf = this.findNodeById(this.activeLayer, hitId);
+                if(leaf) {
+                    this.selectedNodes.clear();
+                    const path = leaf.getPath().filter(n => !(n instanceof LayerNode) && !(n instanceof RepeatNode));
+                    this.expandToNode(leaf);
+                    this.selectedNodes.add(leaf);
+                    
+                    this.updateActionButtons();
+                    this.refreshHierarchy();
+                    this.refreshProperties();
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (this.isPanning) {
+                this.isPanning = false;
+                return;
+            }
+            if (this.isLayerMultiMode) return;
+            if(this.activeHandle) this.activeHandle = null;
+            if(this.isDragging) {
+                this.isDragging = false;
+                this.refreshProperties();
+            }
+            if(this.isDrawing && this.tool === 'draw-free') {
+                this.isDrawing = false;
+                this.drawingNode = null;
+                this.refreshHierarchy();
+            }
+            if(this.isSelectingBox && this.boxStart) {
+                this.handleBoxSelect(this.boxStart, this.mouse);
+                this.isSelectingBox = false;
+                this.boxStart = null;
+            }
+        });
+    }
+
+    getAllBaked() {
+        let blocks = [];
+        this.compLayers.forEach(l => blocks.push(...l.bake()));
+        this.wireLayers.forEach(l => blocks.push(...l.bake()));
+        return blocks;
+    }
+    
+    getActiveLayerBaked() {
+        if (!this.activeLayer) return [];
+        return this.activeLayer.bake();
+    }
+
+    hitTest(pos, useAllLayers = false) {
+        const blocks = useAllLayers ? this.getAllBaked() : this.getActiveLayerBaked();
+        let hitId = null;
+        for(let i=blocks.length-1; i>=0; i--) { 
+            const b = blocks[i];
+            if(pos.x >= b.x && pos.x <= b.x+b.w && pos.y >= b.y && pos.y <= b.y+b.h) {
+                hitId = b.sourceId;
+                break;
+            }
+        }
+        return hitId ? this.findNodeGlobally(hitId) : null;
+    }
+
+    findNodeGlobally(id) {
+        let res = this.findNodeInStack(this.compLayers, id);
+        if(!res) res = this.findNodeInStack(this.wireLayers, id);
+        return res;
+    }
+
+    findNodeInStack(stack, id) {
+        for(let l of stack) {
+            if (l.id === id) return l;
+            const f = this.findNodeById(l, id);
+            if(f) return f;
+        }
+        return null;
+    }
+
+    findNodeById(node, id) {
+        if(node.id === id) return node;
+        for(let c of node.children) {
+            const found = this.findNodeById(c, id);
+            if(found) return found;
+        }
+        return null;
+    }
+
+    isNodeSelectedOrChildOfSelected(node) {
+        let curr = node;
+        while(curr) {
+            if(this.selectedNodes.has(curr)) return true;
+            curr = curr.parent;
+        }
+        return false;
+    }
+
+    checkHandleHit() {
+        if(this.selectedNodes.size !== 1) return null;
+        const node = this.selectedNodes.values().next().value;
+        if(!(node instanceof WireNode) || node.mode === 'Free') return null;
+        const handles = node.getHandles();
+        const tolerance = 6 / this.viewScale; // Scaled tolerance
+        for(let h of handles) {
+            if(Math.abs(this.mouse.x - h.x) < tolerance && Math.abs(this.mouse.y - h.y) < tolerance) {
+                return { node: node, type: h.type };
+            }
+        }
+        return null;
+    }
+
+    updateHoverHighlight() {
+        const blocks = this.getAllBaked(); 
+        const gridMap = new Map(); 
+        
+        blocks.forEach(b => {
+            const gx = Math.round(b.x / GRID);
+            const gy = Math.round(b.y / GRID);
+            const gw = Math.round(b.w / GRID);
+            const gh = Math.round(b.h / GRID);
+            for(let i=0; i<gw; i++) {
+                for(let j=0; j<gh; j++) {
+                    gridMap.set(`${b.layerId}:${gx+i},${gy+j}`, b); 
+                }
+            }
+        });
+
+        const mx = this.mouseGrid.x;
+        const my = this.mouseGrid.y;
+        
+        let startBlock = null;
+        for(let i=blocks.length-1; i>=0; i--) {
+            const b = blocks[i];
+            const gx = Math.round(b.x / GRID);
+            const gy = Math.round(b.y / GRID);
+            const gw = Math.round(b.w / GRID);
+            const gh = Math.round(b.h / GRID);
+            if (mx >= gx && mx < gx + gw && my >= gy && my < gy + gh) {
+                startBlock = b;
+                break;
+            }
+        }
+
+        if (!startBlock) {
+            this.hoveredCells = [];
+            return;
+        }
+
+        const queue = [];
+        const visited = new Set(); 
+        const cluster = [];
+
+        if (startBlock.type === 'body') {
+            const node = this.findNodeGlobally(startBlock.sourceId);
+            if (node instanceof ComponentNode) {
+                cluster.push(startBlock);
+                node.pins.forEach(p => {
+                    if (p.targetLayerId) {
+                        const px = node.pos.x + p.x;
+                        const py = node.pos.y + p.y;
+                        const key = `${p.targetLayerId}:${px},${py}`;
+                        queue.push(key);
+                        visited.add(key);
+                    }
+                });
+            }
+        } else {
+            const startKey = `${startBlock.layerId}:${mx},${my}`;
+            queue.push(startKey);
+            visited.add(startKey);
+        }
+
+        while (queue.length > 0) {
+            const key = queue.shift();
+            if (!gridMap.has(key)) continue;
+            
+            const block = gridMap.get(key);
+            if(!cluster.includes(block)) {
+                cluster.push(block);
+                if (block.type === 'pin' && block.sourceId) {
+                    const body = blocks.find(b => b.sourceId === block.sourceId && b.type === 'body');
+                    if (body && !cluster.includes(body)) cluster.push(body);
+                }
+            }
+
+            const coordPart = key.split(':')[1];
+            const layerId = key.split(':')[0];
+            const [kx, ky] = coordPart.split(',').map(Number);
+            
+            const neighbors = [
+                `${layerId}:${kx+1},${ky}`, `${layerId}:${kx-1},${ky}`, 
+                `${layerId}:${kx},${ky+1}`, `${layerId}:${kx},${ky-1}`
+            ];
+
+            neighbors.forEach(nKey => {
+                if (gridMap.has(nKey) && !visited.has(nKey)) {
+                    visited.add(nKey);
+                    queue.push(nKey);
+                }
+            });
+        }
+        this.hoveredCells = cluster;
+    }
+
+    handleClickSelect(e) {
+        if (!this.activeLayer) return null;
+        const blocks = this.getActiveLayerBaked();
+        let hitId = null;
+        for(let i=blocks.length-1; i>=0; i--) { 
+            const b = blocks[i];
+            if(this.mouse.x >= b.x && this.mouse.x <= b.x+b.w && this.mouse.y >= b.y && this.mouse.y <= b.y+b.h) {
+                hitId = b.sourceId;
+                break;
+            }
+        }
+        const leafNode = hitId ? this.findNodeById(this.activeLayer, hitId) : null;
+
+        if(this.tool === 'select') {
+            if(leafNode) {
+                const rawPath = leafNode.getPath();
+                const filteredPath = rawPath.filter(n => !(n instanceof RepeatNode));
+                
+                // Shift Click: Select Individual Leaf (Deep Select)
+                if (e.shiftKey) {
+                     this.selectedNodes.clear();
+                     this.selectedNodes.add(leafNode);
+                     this.expandToNode(leafNode);
+                } 
+                // Single Click: Select Root/Group
+                else {
+                    const objectPath = filteredPath.filter(n => !(n instanceof LayerNode));
+                    this.selectedNodes.clear();
+                    if(objectPath.length > 0) this.selectedNodes.add(objectPath[0]); // Select Top Level Group
+                    else this.selectedNodes.add(leafNode);
+                }
+            } else {
+                this.selectedNodes.clear();
+            }
+        } else if(this.tool === 'select-multi') {
+            if(leafNode) {
+                if(this.selectedNodes.has(leafNode)) this.selectedNodes.delete(leafNode);
+                else this.selectedNodes.add(leafNode);
+            }
+        }
+        
+        this.updateActionButtons();
+        this.refreshHierarchy();
+        this.refreshProperties();
+        return leafNode; 
+    }
+
+    handleBoxSelect(p1, p2) {
+        if (!this.activeLayer) return;
+        const x = Math.min(p1.x, p2.x);
+        const y = Math.min(p1.y, p2.y);
+        const w = Math.abs(p1.x - p2.x);
+        const h = Math.abs(p1.y - p2.y);
+        const blocks = this.getActiveLayerBaked();
+        const hits = new Set();
+        blocks.forEach(b => {
+            if (x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y) {
+                 hits.add(b.sourceId);
+            }
+        });
+        this.selectedNodes.clear();
+        hits.forEach(id => {
+            const leaf = this.findNodeById(this.activeLayer, id);
+            if(leaf) {
+                const path = leaf.getPath().filter(n => !(n instanceof LayerNode) && !(n instanceof RepeatNode));
+                if(path.length > 0) this.selectedNodes.add(path[0]);
+                else this.selectedNodes.add(leaf);
+            }
+        });
+        this.updateActionButtons();
+        this.refreshHierarchy();
+        this.refreshProperties();
+    }
+
+    isDescendant(parent, child) {
+        let curr = child.parent;
+        while(curr) {
+            if(curr === parent) return true;
+            curr = curr.parent;
+        }
+        return false;
+    }
+    
+    expandToNode(node) {
+        let curr = node.parent;
+        while(curr && !(curr instanceof LayerNode)) {
+            curr.expanded = true;
+            curr = curr.parent;
+        }
+        if(curr instanceof LayerNode) curr.expanded = true;
+    }
+
+    updateActionButtons() {
+        const btnGroup = document.getElementById('btn-group');
+        const btnRepeat = document.getElementById('btn-repeat');
+        const hasLayer = Array.from(this.selectedNodes).some(n => n instanceof LayerNode);
+        if (hasLayer) {
+            btnGroup.style.display = 'none';
+            btnRepeat.style.display = 'none';
+            return;
+        } else {
+            btnGroup.style.display = 'inline-block';
+            btnRepeat.style.display = 'inline-block';
+        }
+        if(this.selectedNodes.size < 2) {
+            btnGroup.disabled = true;
+        } else {
+            const parents = new Set();
+            this.selectedNodes.forEach(n => parents.add(n.parent));
+            btnGroup.disabled = parents.size > 1;
+        }
+        if (this.selectedNodes.size === 0) {
+            btnRepeat.disabled = true;
+        } else {
+            const parents = new Set();
+            this.selectedNodes.forEach(n => parents.add(n.parent));
+            btnRepeat.disabled = parents.size > 1;
+        }
+    }
+
+    applyRepeat() {
+        if(this.selectedNodes.size === 0) return;
+        const targets = Array.from(this.selectedNodes);
+        if (targets.some(n => n instanceof LayerNode)) return; 
+        const parent = targets[0].parent;
+        if(!targets.every(n => n.parent === parent)) { alert("Parent mismatch"); return; }
+        if(!parent) return;
+        targets.forEach(n => parent.children = parent.children.filter(c => c !== n));
+        const rep = new RepeatNode(targets);
+        parent.children.push(rep);
+        rep.parent = parent;
+        this.selectedNodes.clear();
+        this.selectedNodes.add(rep);
+        this.refreshHierarchy();
+        this.refreshProperties();
+    }
+
+    groupSelection() {
+        if(this.selectedNodes.size < 2) return;
+        const targets = Array.from(this.selectedNodes);
+        if (targets.some(n => n instanceof LayerNode)) return; 
+        const parent = targets[0].parent;
+        if(!targets.every(n => n.parent === parent)) return;
+        if(!parent) return;
+        targets.forEach(n => parent.children = parent.children.filter(c => c !== n));
+        const grp = new GroupNode();
+        targets.forEach(n => grp.add(n));
+        parent.children.push(grp);
+        grp.parent = parent;
+        this.selectedNodes.clear();
+        this.selectedNodes.add(grp);
+        this.updateActionButtons();
+        this.refreshHierarchy();
+        this.refreshProperties();
+    }
+
+    deleteSelection() {
+        if(this.selectedNodes.size === 0) return;
+        const roots = new Set();
+        this.selectedNodes.forEach(n => {
+            if(!this.isNodeSelectedOrChildOfSelected(n.parent)) roots.add(n);
+        });
+        roots.forEach(n => {
+            if(n instanceof LayerNode) {
+                this.wireLayers = this.wireLayers.filter(l => l !== n);
+                this.compLayers = this.compLayers.filter(l => l !== n);
+                if(this.activeLayer === n) this.activeLayer = null;
+            } else {
+                const p = n.parent;
+                if(p) p.children = p.children.filter(c => c !== n);
+            }
+        });
+        this.selectedNodes.clear();
+        this.updateActionButtons();
+        this.refreshHierarchy();
+        this.refreshProperties();
+    }
+    
+    ungroupSelection() {
+        if(this.selectedNodes.size === 0) return;
+        const targets = Array.from(this.selectedNodes);
+        targets.forEach(n => { if(n.ungroup) n.ungroup(); });
+        this.selectedNodes.clear();
+        this.refreshHierarchy();
+        this.refreshProperties();
+    }
+    
+    moveLayer(layer, dir) {
+        const stack = layer.type === 'WIRE' ? this.wireLayers : this.compLayers;
+        const idx = stack.indexOf(layer);
+        if (idx === -1) return;
+        if (dir === -1 && idx > 0) { 
+            [stack[idx], stack[idx-1]] = [stack[idx-1], stack[idx]];
+        } else if (dir === 1 && idx < stack.length - 1) {
+             [stack[idx], stack[idx+1]] = [stack[idx+1], stack[idx]];
+        }
+        this.refreshHierarchy();
+    }
+
+    refreshHierarchy() {
+        const container = document.getElementById('hierarchy-view');
+        container.innerHTML = '';
+        const stack = this.activeTab === 'wires' ? this.wireLayers : this.compLayers;
+
+        const buildTree = (node, parentColor) => {
+            const el = document.createElement('div');
+            el.className = 'tree-node';
+            const isSel = this.selectedNodes.has(node);
+            const isActiveLayer = node === this.activeLayer;
+            const header = document.createElement('div');
+            header.className = `tree-header ${isSel ? 'selected' : ''}`;
+            
+            if (node instanceof LayerNode) {
+                header.style.fontWeight = isActiveLayer ? 'bold' : 'normal';
+                header.style.color = isActiveLayer ? '#fff' : '#888';
+                if (this.isLayerMultiMode) {
+                    el.classList.add('pointer-events-none');
+                    header.style.pointerEvents = 'auto'; 
+                }
+            } else {
+                if (this.isLayerMultiMode) return document.createTextNode(''); 
+            }
+
+            header.onclick = (e) => {
+                e.stopPropagation();
+                if (this.isLayerMultiMode) {
+                    if (node instanceof LayerNode) {
+                        if (this.selectedNodes.has(node)) this.selectedNodes.delete(node);
+                        else this.selectedNodes.add(node);
+                        this.refreshHierarchy();
+                        this.refreshProperties();
+                        this.updateActionButtons();
+                    }
+                    return;
+                }
+                if (node instanceof LayerNode) {
+                    this.activeLayer = node;
+                    if(e.shiftKey || this.tool === 'select-multi') {
+                         if (this.selectedNodes.has(node)) this.selectedNodes.delete(node);
+                         else this.selectedNodes.add(node);
+                    } else {
+                        this.selectedNodes.clear();
+                        this.selectedNodes.add(node);
+                    }
+                    this.refreshHierarchy();
+                    this.refreshProperties();
+                    this.updateActionButtons();
+                    return;
+                }
+                if (this.tool === 'select-multi') {
+                    if (node instanceof GroupNode || node instanceof RepeatNode) return;
+                    if (this.selectedNodes.has(node)) this.selectedNodes.delete(node);
+                    else this.selectedNodes.add(node);
+                } else {
+                    if(e.shiftKey) {
+                        if(this.selectedNodes.has(node)) this.selectedNodes.delete(node);
+                        else this.selectedNodes.add(node);
+                    } else {
+                        this.selectedNodes.clear();
+                        this.selectedNodes.add(node);
+                    }
+                }
+                this.updateActionButtons();
+                this.refreshHierarchy();
+                this.refreshProperties();
+            };
+
+            // Dynamic color selection logic
+            let color = '#888';
+            if(node instanceof LayerNode) color = node.color || '#fff'; // Use layer color
+            else if(parentColor) color = parentColor; // Inherit from layer if passed down
+            
+            // Fallbacks/Overrides
+            if(node instanceof RepeatNode) color = '#facc15';
+            if(node instanceof GroupNode) color = '#60a5fa';
+
+            const toggleVis = (e) => {
+                e.stopPropagation();
+                node.visible = !node.visible;
+                this.refreshHierarchy(); 
+                this.loop();
+            };
+
+            const eyeIcon = node instanceof LayerNode 
+                ? `<span class="tree-vis ${!node.visible ? 'hidden-layer' : ''}" onclick="/*handled below*/">👁</span>`
+                : '';
+
+            header.innerHTML = `
+                <span class="tree-toggle" onclick="app.toggleNode('${node.id}')">
+                    ${node.children.length > 0 ? (node.expanded ? '▼' : '▶') : '•'}
+                </span>
+                ${eyeIcon}
+                <div class="tree-icon" style="background:${color}; ${node instanceof LayerNode ? 'border-radius:50%;' : ''}"></div>
+                <span>${node.name}</span>
+            `;
+            
+            if(node instanceof LayerNode) {
+                const eye = header.querySelector('.tree-vis');
+                eye.onclick = toggleVis;
+            }
+
+            el.appendChild(header);
+
+            if(node.expanded && node.children.length > 0 && !this.isLayerMultiMode) {
+                const cDiv = document.createElement('div');
+                if(node instanceof WireNode && node.mode === 'Free') {
+                    const sortedCells = Array.from(node.cells).sort();
+                    sortedCells.forEach(cellStr => {
+                        const row = document.createElement('div');
+                        row.className = 'tree-cell-item';
+                        row.innerText = `Cell (${cellStr})`;
+                        cDiv.appendChild(row);
+                    });
+                }
+                // Pass current color down if this is a LayerNode, otherwise pass the received parentColor
+                const nextColor = node instanceof LayerNode ? node.color : parentColor;
+                [...node.children].reverse().forEach(c => cDiv.appendChild(buildTree(c, nextColor)));
+                el.appendChild(cDiv);
+            }
+            return el;
+        };
+
+        [...stack].reverse().forEach(l => container.appendChild(buildTree(l, null)));
+    }
+
+    toggleNode(id) {
+        const n = this.findNodeGlobally(id);
+        if(n) { n.expanded = !n.expanded; this.refreshHierarchy(); }
+    }
+
+    refreshProperties() {
+        const container = document.getElementById('properties-view');
+        container.innerHTML = '';
+        if(this.selectedNodes.size === 0) {
+            container.innerHTML = '<div class="text-gray-500 text-xs italic text-center mt-4">Select object(s)</div>';
+            return;
+        }
+        
+        if (this.isLayerMultiMode) {
+            this.addHeader(container, 'MULTI LAYER EDIT');
+            const layers = Array.from(this.selectedNodes).filter(n => n instanceof LayerNode);
+            if (layers.length > 0) {
+                this.addProp(container, 'Bulk Opacity', 'range', layers[0].opacity, (v) => {
+                    layers.forEach(l => l.opacity = parseFloat(v));
+                    this.loop();
+                }, {min:0, max:1, step:0.1});
+            }
+            return;
+        }
+
+        if(this.selectedNodes.size > 1) {
+            container.innerHTML = `<div class="text-white text-xs text-center mt-4">${this.selectedNodes.size} items selected</div>`;
+            return;
+        }
+
+        const node = this.selectedNodes.values().next().value;
+        this.addProp(container, 'Name', 'text', node.name, (v) => { node.name = v; this.refreshHierarchy(); });
+
+        if(node instanceof LayerNode) {
+            this.addHeader(container, 'LAYER SETTINGS');
+            this.addProp(container, 'Color', 'color', node.color, (v) => { node.color = v; this.refreshHierarchy(); this.loop(); });
+            this.addProp(container, 'Opacity', 'range', node.opacity, (v) => { node.opacity = parseFloat(v); this.loop(); }, {min:0, max:1, step:0.1});
+            
+            const row = document.createElement('div');
+            row.className = 'flex gap-2 mt-2';
+            const btnUp = document.createElement('button');
+            btnUp.className = 'action-btn'; btnUp.innerText = 'Move Up'; 
+            btnUp.onclick = () => app.moveLayer(node, 1);
+            const btnDown = document.createElement('button');
+            btnDown.className = 'action-btn'; btnDown.innerText = 'Move Down'; 
+            btnDown.onclick = () => app.moveLayer(node, -1);
+            row.appendChild(btnUp); row.appendChild(btnDown);
+            container.appendChild(row);
+        }
+        else if(node instanceof ComponentNode) {
+            this.addHeader(container, 'COMPONENT');
+            this.addProp(container, 'Type', 'label', node.compType);
+            this.addProp(container, 'Pos X', 'number', node.pos.x, (v) => node.pos.x = parseInt(v));
+            this.addProp(container, 'Pos Y', 'number', node.pos.y, (v) => node.pos.y = parseInt(v));
+            
+            if (node.compType === 'CLOCK') {
+                this.addProp(container, 'Period', 'number', node.period, (v) => node.period = parseInt(v));
+            }
+
+            this.addHeader(container, 'CONNECTIONS');
+            node.pins.forEach(pin => {
+                const row = document.createElement('div');
+                row.className = 'prop-row';
+                const lbl = document.createElement('span');
+                lbl.className = 'text-gray-400 text-[10px]';
+                lbl.innerText = `${pin.id} (${pin.type})`;
+                
+                const select = document.createElement('select');
+                select.className = 'prop-select';
+                
+                const noneOpt = document.createElement('option');
+                noneOpt.value = ''; noneOpt.text = '-- None --';
+                select.appendChild(noneOpt);
+                
+                this.wireLayers.forEach(l => {
+                    const opt = document.createElement('option');
+                    opt.value = l.id;
+                    opt.text = l.name;
+                    if (pin.targetLayerId === l.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+                
+                select.onchange = (e) => {
+                    console.log(`[ACTION] Changed Pin ${pin.id} Layer to ${e.target.value}`);
+                    pin.targetLayerId = e.target.value;
+                };
+                
+                row.appendChild(lbl);
+                row.appendChild(select);
+                container.appendChild(row);
+            });
+        }
+        else if(node instanceof WireNode) {
+            if(node.mode !== 'Free') {
+                this.addHeader(container, 'GEOMETRY');
+                this.addProp(container, 'Start X', 'number', node.start.x, (v) => node.start.x = parseInt(v));
+                this.addProp(container, 'Start Y', 'number', node.start.y, (v) => node.start.y = parseInt(v));
+                this.addProp(container, 'Length', 'number', node.length, (v) => node.length = parseInt(v));
+                this.addProp(container, 'Width', 'number', node.width, (v) => node.width = parseInt(v));
+            } else {
+                this.addHeader(container, 'PAINTED CELLS');
+                this.addProp(container, 'Count', 'label', node.cells.size);
+            }
+        }
+        else if(node instanceof RepeatNode) {
+            this.addHeader(container, 'REPEAT CONFIG');
+            this.addProp(container, 'Count X', 'number', node.countX, (v) => node.countX = parseInt(v));
+            this.addProp(container, 'Gap X', 'number', node.gapX, (v) => node.gapX = parseInt(v));
+            this.addProp(container, 'Shift Y', 'number', node.shiftY, (v) => node.shiftY = parseInt(v));
+            this.addSeparator(container);
+            this.addProp(container, 'Count Y', 'number', node.countY, (v) => node.countY = parseInt(v));
+            this.addProp(container, 'Gap Y', 'number', node.gapY, (v) => node.gapY = parseInt(v));
+            this.addProp(container, 'Shift X', 'number', node.shiftX, (v) => node.shiftX = parseInt(v));
+            const btn = document.createElement('button');
+            btn.className = 'action-btn'; btn.innerText = 'Ungroup / Remove'; btn.onclick = () => app.ungroupSelection();
+            container.appendChild(btn);
+        }
+        else if(node instanceof GroupNode) {
+            const btn = document.createElement('button');
+            btn.className = 'action-btn'; btn.innerText = 'Ungroup'; btn.onclick = () => app.ungroupSelection();
+            container.appendChild(btn);
+        }
+    }
+
+    addProp(parent, label, type, val, callback, attrs={}) {
+        const row = document.createElement('div');
+        row.className = 'prop-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'text-gray-400';
+        lbl.innerText = label;
+        let input;
+        if(type === 'label') { input = document.createElement('span'); input.innerText = val; } 
+        else {
+            input = document.createElement('input');
+            input.type = type;
+            if(type === 'number') input.value = val;
+            else if(type === 'checkbox') input.checked = val;
+            else input.value = val;
+            
+            if(type === 'text' || type === 'number') input.className = 'prop-input';
+            else if(type === 'range') input.className = 'w-16 accent-accent'; 
+            else if(type === 'color') input.className = 'w-8 h-4 p-0 border-0 bg-transparent cursor-pointer';
+            
+            Object.keys(attrs).forEach(k => input.setAttribute(k, attrs[k]));
+
+            input.oninput = (e) => callback(e.target.value);
+        }
+        row.appendChild(lbl); row.appendChild(input); parent.appendChild(row);
+    }
+    addHeader(parent, text) {
+        const d = document.createElement('div');
+        d.className = 'text-[9px] font-bold text-accent mt-3 mb-1 border-b border-gray-700 pb-1';
+        d.innerText = text;
+        parent.appendChild(d);
+    }
+    addSeparator(parent) { const d = document.createElement('div'); d.className = 'h-px bg-gray-700 my-2'; parent.appendChild(d); }
+
+    loop() {
+        if (this.simRunning) {
+            this.simulator.step();
+        }
+        this.draw();
+        requestAnimationFrame(this.loop);
+    }
+
+    draw() {
+        const ctx = this.ctx;
+        
+        ctx.save(); // Save for Transform
+        
+        // Clear Background
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Apply Zoom/Pan Transform
+        ctx.translate(this.viewOffset.x, this.viewOffset.y);
+        ctx.scale(this.viewScale, this.viewScale);
+
+        // Draw Infinite Grid
+        const startX = -this.viewOffset.x / this.viewScale;
+        const startY = -this.viewOffset.y / this.viewScale;
+        const endX = (this.canvas.width - this.viewOffset.x) / this.viewScale;
+        const endY = (this.canvas.height - this.viewOffset.y) / this.viewScale;
+
+        const startCol = Math.floor(startX / GRID);
+        const endCol = Math.ceil(endX / GRID);
+        const startRow = Math.floor(startY / GRID);
+        const endRow = Math.ceil(endY / GRID);
+
+        ctx.strokeStyle = '#222'; 
+        ctx.lineWidth = 1 / this.viewScale; 
+        ctx.beginPath();
+
+        for(let c = startCol; c <= endCol; c++) {
+            ctx.moveTo(c * GRID, startY);
+            ctx.lineTo(c * GRID, endY);
+        }
+        for(let r = startRow; r <= endRow; r++) {
+            ctx.moveTo(startX, r * GRID);
+            ctx.lineTo(endX, r * GRID);
+        }
+        ctx.stroke();
+
+        // Render Layers
+        const blocks = this.simRunning ? this.getAllBaked() : this.getAllBaked(); 
+        
+        blocks.forEach(b => {
+            const leaf = this.findNodeGlobally(b.sourceId);
+            const isSel = leaf && this.isNodeSelectedOrChildOfSelected(leaf);
+            
+            ctx.globalAlpha = b.opacity !== undefined ? b.opacity : 1.0;
+            
+            if (b.isPin) {
+                // Pin: No stroke, Yellow
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+            } else if (b.type === 'wire') {
+                // Wire: No stroke
+                let color = b.color; // Layer color
+                if (this.simRunning) {
+                    const gx = Math.round(b.x/GRID);
+                    const gy = Math.round(b.y/GRID);
+                    const key = `${b.layerId}:${gx},${gy}`;
+                    const netId = this.simulator.netMap.get(key);
+                    if (this.simulator.nets.get(netId) === 1) {
+                        color = '#ffffff'; 
+                    }
+                }
+                ctx.fillStyle = isSel ? '#ffffff' : color;
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+            } else {
+                // Components: Keep Stroke
+                ctx.fillStyle = isSel ? '#ffffff' : b.color;
+                
+                if (b.compType === 'SWITCH' && this.simRunning) {
+                    const uid = b.sourceId + (b.instancePath || "");
+                    const simComp = this.simulator.components.get(uid);
+                    if (simComp && simComp.state) ctx.fillStyle = '#4ade80';
+                    else if (simComp) ctx.fillStyle = '#1f2937';
+                }
+                
+                if (b.compType === 'LED' && this.simRunning) {
+                    const uid = b.sourceId + (b.instancePath || "");
+                    const simComp = this.simulator.components.get(uid);
+                    if (simComp && simComp.state) {
+                        ctx.fillStyle = '#ffffff'; // On
+                    } else {
+                        ctx.fillStyle = '#000000'; // Off
+                    }
+                }
+
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.lineWidth = 1 / this.viewScale; // Scale stroke
+                
+                // Border Color
+                if (b.compType === 'LED' && this.simRunning) {
+                     const uid = b.sourceId + (b.instancePath || "");
+                     const simComp = this.simulator.components.get(uid);
+                     if (simComp && simComp.state) ctx.strokeStyle = '#ef4444';
+                     else ctx.strokeStyle = '#ffffff';
+                     ctx.strokeRect(b.x, b.y, b.w, b.h);
+                } else {
+                    ctx.strokeStyle = b.layerColor || '#000'; 
+                    ctx.strokeRect(b.x, b.y, b.w, b.h);
+                }
+            }
+            
+            if(b.type === 'body' && leaf && leaf instanceof ComponentNode) {
+                ctx.fillStyle = isSel ? '#000' : '#fff'; 
+                ctx.font = (10) + 'px Arial'; 
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(leaf.compType.substr(0,4), b.x + b.w/2, b.y + b.h/2);
+            }
+
+            ctx.globalAlpha = 1.0;
+        });
+
+        if(this.hoveredCells.length > 0 && !this.simRunning) {
+            ctx.strokeStyle = '#ffff00'; 
+            ctx.lineWidth = 2 / this.viewScale;
+            this.hoveredCells.forEach(b => ctx.strokeRect(b.x, b.y, b.w, b.h));
+        }
+
+        if(!this.simRunning && this.selectedNodes.size === 1) {
+            const node = this.selectedNodes.values().next().value;
+            if(node instanceof WireNode && node.mode !== 'Free') {
+                const handles = node.getHandles();
+                handles.forEach(h => {
+                    const s = 8 / this.viewScale; // Scale handle size visually
+                    const hs = s/2;
+                    ctx.fillStyle = '#007acc'; ctx.fillRect(h.x - hs, h.y - hs, s, s);
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1 / this.viewScale; 
+                    ctx.strokeRect(h.x - hs, h.y - hs, s, s);
+                });
+            }
+        }
+
+        if(this.isSelectingBox && this.boxStart && this.mouse) {
+            const x = Math.min(this.boxStart.x, this.mouse.x);
+            const y = Math.min(this.boxStart.y, this.mouse.y);
+            const w = Math.abs(this.boxStart.x - this.mouse.x);
+            const h = Math.abs(this.boxStart.y - this.mouse.y);
+            
+            ctx.fillStyle = 'rgba(0, 122, 204, 0.2)'; 
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#007acc'; 
+            ctx.lineWidth = 1 / this.viewScale;
+            ctx.strokeRect(x, y, w, h);
+        }
+        
+        ctx.restore();
+    }
+}
+
+const app = new App();
+window.app = app;
+</script>
+</body>
+</html>
